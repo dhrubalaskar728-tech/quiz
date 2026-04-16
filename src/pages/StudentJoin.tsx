@@ -67,16 +67,22 @@ export default function StudentJoin() {
       return;
     }
 
+    const cleanRoll = roll.trim().replace(/[^A-Z0-9-]/gi, '');
+    if (!cleanRoll) {
+      setError("Invalid roll number format. Use letters, numbers, and dashes only.");
+      return;
+    }
+
     // Roll number validation
     if (targetQuiz.allowedRollPatterns && targetQuiz.allowedRollPatterns.length > 0) {
-      if (!isRollAllowed(roll, targetQuiz.allowedRollPatterns)) {
-        setError(`The allowed types are ${targetQuiz.allowedRollPatterns.join(", ")} for further assistance talk to teacher.`);
+      if (!isRollAllowed(cleanRoll, targetQuiz.allowedRollPatterns)) {
+        setError(`Your roll number (${cleanRoll}) is not authorized for this quiz based on teacher's restrictions.`);
         return;
       }
     }
 
     try {
-      const joined = await joinQuiz({ name, roll }, targetQuiz);
+      const joined = await joinQuiz({ name, roll: cleanRoll }, targetQuiz);
       
       if (!joined) {
         setError("This quiz has either ended or is no longer active.");
@@ -90,9 +96,18 @@ export default function StudentJoin() {
       } else {
         navigate("/quiz");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Join error:", err);
-      setError("An error occurred. Please try again.");
+      let message = "An error occurred. Please try again.";
+      try {
+        const firestoreError = JSON.parse(err.message);
+        if (firestoreError.error.includes("permission")) {
+          message = "Authentication error or insufficient permissions. Contact your teacher or check your login state.";
+        }
+      } catch (e) {
+        message = err.message || message;
+      }
+      setError(message);
     }
   };
 
