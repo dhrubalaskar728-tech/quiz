@@ -183,13 +183,10 @@ export function QuizProvider({ children }: { children: ReactNode }) {
           }
           return activeQuiz;
         });
-        // We set activeRoomCode but we DON'T use it to clear the quiz if it's authored by us
         localStorage.setItem('activeRoomCode', activeQuiz.roomCode);
       } else {
-        // Only clear if we were previously in a teacher-like state (monitoring a quiz) 
-        // AND we don't have ANY active quizzes in our list anymore
-        // This prevents flickering if the query is still updating
-        if (localStorage.getItem('activeRoomCode') && fetchedQuizzes.length > 0) {
+        // Only clear if we were previously monitoring an active quiz
+        if (localStorage.getItem('activeRoomCode')) {
           setQuiz(null);
           localStorage.removeItem('activeRoomCode');
         }
@@ -314,14 +311,16 @@ export function QuizProvider({ children }: { children: ReactNode }) {
 
       const quizDoc = await addDoc(quizzesRef, quizData);
       
-      // Add questions as subcollection
+      // Add questions as subcollection in parallel
       const questionsRef = collection(db, 'quizzes', quizDoc.id, 'questions');
-      for (const question of newQuiz.questions) {
-        await addDoc(questionsRef, {
+      const questionPromises = newQuiz.questions.map(question => 
+        addDoc(questionsRef, {
           ...question,
           quizId: quizDoc.id
-        });
-      }
+        })
+      );
+      
+      await Promise.all(questionPromises);
 
       const createdQuiz = {
         id: quizDoc.id,
@@ -335,6 +334,7 @@ export function QuizProvider({ children }: { children: ReactNode }) {
       setDraftQuiz(null);
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'quizzes');
+      throw err; // Propagate to caller to handle saving state
     }
   };
 
@@ -362,12 +362,19 @@ export function QuizProvider({ children }: { children: ReactNode }) {
 
     try {
       const docRef = doc(db, 'quizzes', activeQuiz.id, 'responses', p.roll);
-      const docSnap = await getDoc(docRef);
+      let docSnap;
+      try {
+        docSnap = await getDoc(docRef);
+      } catch (err) {
+        // Handle issues with document ID if any
+        throw new Error("Invalid roll number for joining.");
+      }
       
       if (docSnap.exists()) {
         // Resume existing session
         setCurrentStudentRoll(p.roll);
         localStorage.setItem('currentStudentRoll', p.roll);
+        // Important: fetching the latest state from Firestore is handled by the useEffect onSnapshot
         return true;
       }
 
@@ -429,9 +436,9 @@ export function QuizProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('quizHistory', JSON.stringify(history.slice(-10))); // Keep last 10
       }
       return true;
-    } catch (err) {
+    } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, `quizzes/${activeQuiz.id}/responses/${p.roll}`);
-      return false;
+      throw err; // Propagate for UI error display
     }
   };
 
@@ -515,16 +522,15 @@ export function QuizProvider({ children }: { children: ReactNode }) {
       const start = parseInt(startStr, 10);
       const end = parseInt(endStr, 10);
 
-      // Try to match the roll against the pattern
-      // Roll format could be 2023IMG001 or 2023-IMG-001
-      // Let's assume the roll is entered as 2023IMG001 or similar
-      // We'll use a regex to extract parts from the roll
-      const rollRegex = new RegExp(`^(${year})\\s*[-]?\\s*(${code})\\s*[-]?\\s*(\\d+)$`, 'i');
-      const match = normalizedRoll.match(rollRegex);
-
-      if (match) {
-        const studentNum = parseInt(match[3], 10);
-        return studentNum >= start && studentNum <= end;
+      // More lenient matching: Extract all digits from the roll number
+      // and match the prefix (year+code) first.
+      const cleanedRoll = normalizedRoll.replace(/[^A-Z0-9]/gi, '');
+      const prefix = (year + code).replace(/[^A-Z0-9]/gi, '');
+      
+      if (cleanedRoll.startsWith(prefix)) {
+        const remainingDigits = cleanedRoll.substring(prefix.length);
+        const studentNum = parseInt(remainingDigits, 10);
+        return !isNaN(studentNum) && studentNum >= start && studentNum <= end;
       }
 
       return false;

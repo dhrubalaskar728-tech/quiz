@@ -26,38 +26,41 @@ export default function Reports() {
 
   useEffect(() => {
     const fetchParticipants = async () => {
-      if (!user || quizzes.length === 0) return;
+      if (!user) return;
       
       setLoadingParticipants(true);
       try {
         const participantsList: Participant[] = [];
         // Use a map to store questions to avoid mutating context objects directly
-        const quizQuestionsMap: Record<string, Question[]> = {};
+        const qQuestionsMap: Record<string, Question[]> = {};
 
-        for (const quiz of quizzes) {
-          if (quiz.id) {
-            // Fetch questions if missing or not in map
-            let questions = quiz.questions || [];
-            if (questions.length === 0) {
-              const questionsRef = collection(db, 'quizzes', quiz.id, 'questions');
-              const questionsSnapshot = await getDocs(questionsRef);
-              questions = questionsSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-              })) as Question[];
+        // If quizzes are loaded, fetch participants for each
+        if (quizzes.length > 0) {
+          for (const q of quizzes) {
+            if (q.id) {
+              // Fetch questions if missing or not in map
+              let questions = q.questions || [];
+              if (questions.length === 0) {
+                const questionsRef = collection(db, 'quizzes', q.id, 'questions');
+                const questionsSnapshot = await getDocs(questionsRef);
+                questions = questionsSnapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                })) as Question[];
+              }
+              qQuestionsMap[q.id] = questions;
+
+              const responsesRef = collection(db, 'quizzes', q.id, 'responses');
+              const snapshot = await getDocs(responsesRef);
+              snapshot.docs.forEach(doc => {
+                participantsList.push({ id: doc.id, ...doc.data() } as Participant);
+              });
             }
-            quizQuestionsMap[quiz.id] = questions;
-
-            const responsesRef = collection(db, 'quizzes', quiz.id, 'responses');
-            const snapshot = await getDocs(responsesRef);
-            snapshot.docs.forEach(doc => {
-              participantsList.push({ id: doc.id, ...doc.data() } as Participant);
-            });
           }
         }
         
         setAllParticipants(participantsList);
-        setQuizQuestionsMap(quizQuestionsMap);
+        setQuizQuestionsMap(qQuestionsMap);
       } catch (err) {
         handleFirestoreError(err, OperationType.LIST, 'responses');
       } finally {
