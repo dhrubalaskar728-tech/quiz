@@ -32,7 +32,7 @@ export default function StudentJoin() {
     const cleanCode = inputCode.replace(/[^A-Z0-9]/gi, '');
     if (cleanCode.length === 6) {
       setIsValidating(true);
-      const found = await findQuizByRoomCode(cleanCode);
+      const found = await findQuizByRoomCode(inputCode);
       setIsCodeValid(!!found);
       if (!found) setError("Invalid room code");
       else setError("");
@@ -52,7 +52,7 @@ export default function StudentJoin() {
     let targetQuiz = quiz;
     if (!isCodeValid || !targetQuiz) {
       setIsValidating(true);
-   const found = await findQuizByRoomCode(code.replace(/[^A-Z0-9]/gi, ''));
+      const found = await findQuizByRoomCode(code);
       setIsValidating(false);
       if (!found) {
         setError("Invalid room code");
